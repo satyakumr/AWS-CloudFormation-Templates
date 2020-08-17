@@ -1,0 +1,43 @@
+version: 0.2
+
+env:
+    parameter-store:
+        AWS_ACCESS_KEY_ID_PARAM: /CodeBuild/AWS_ACCESS_KEY_ID
+        AWS_SECRET_ACCESS_KEY_PARAM: /CodeBuild/AWS_SECRET_ACCESS_KEY
+    
+phases:
+  install:
+    runtime-versions:
+            docker: 18
+    commands:
+      - echo Installing app dependencies...
+      - echo Installing app dependencies...
+      - wget https://get.helm.sh/helm-v3.3.0-linux-amd64.tar.gz -O helm.tar.gz; tar -xzf helm.tar.gz
+      - chmod +x ./linux-amd64/helm
+      - mv ./linux-amd64/helm /usr/local/bin/helm
+  pre_build:
+    commands:
+      - echo Entered the pre_build phase...
+      - echo Logging in to Amazon ECR...
+      - $(aws ecr get-login --no-include-email --region $AWS_DEFAULT_REGION)
+      - COMMIT_HASH=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | head -c 7)
+      - IMAGE_TAG=${COMMIT_HASH:=latest}
+      - echo Logging in to Amazon EKS...
+      - aws eks --region $AWS_DEFAULT_REGION update-kubeconfig --name $AWS_CLUSTER_NAME
+      - echo Build files...
+  build:
+    commands:
+      - echo Entered the build phase...
+      - export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID_PARAM
+      - export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY_PARAM
+      - echo Building the Docker image...
+      - docker build -t $IMAGE_REPO_NAME:$IMAGE_TAG --build-arg AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID_PARAM --build-arg AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY_PARAM .
+      - docker tag $IMAGE_REPO_NAME:$IMAGE_TAG $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME:$IMAGE_TAG
+      - docker build -t $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME:$ENV -t $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME:$COMMIT_HASH .
+
+  post_build:
+    commands:
+      - echo Entered the post_build phase...
+      - echo Pushing the Docker image...
+      - docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME
+      - helm upgrade --install titan-iraksha ./titan-iraksha --reuse-values --set image.tag=$IMAGE_TAG

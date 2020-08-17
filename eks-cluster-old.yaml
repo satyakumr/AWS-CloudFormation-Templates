@@ -1,0 +1,294 @@
+---
+AWSTemplateFormatVersion: "2010-09-09"
+Description: EKS Cluster
+
+Parameters:
+
+  KubernetesVersion:
+    Description: The Kubernetes version to install
+    Type: String
+
+  VpcStack:
+    Description: VPC stack name
+    Type: String
+    Default: eks-vpc
+
+  KeyName:
+    Description: The EC2 Key Pair to allow SSH access to the node instances
+    Type: String
+
+  NodeImageIdSSMParam:
+    Type: "AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>"
+    Default: /aws/service/eks/optimized-ami/1.14/amazon-linux-2/recommended/image_id
+    Description: AWS Systems Manager Parameter Store parameter of the AMI ID for the worker node instances.
+
+  NodeInstanceType:
+    Description: EC2 instance type for the node instances
+    Type: String
+
+  EKSManagementType:
+    Description: Desired capacity of EKS Management Server
+    Type: String
+
+  EKSServerImage:
+    Type: String
+
+  NodeAutoScalingGroupDesiredCapacity:
+    Description: Desired capacity of Node Group ASG.
+    Type: Number
+    Default: 1 
+
+  NodeVolumeSize:
+    Description: Node volume size
+    Type: Number
+    Default: 20
+
+  ClusterName:
+    Description: Unique name for your Amazon EKS cluster.
+    Type: String
+
+  ClusterMinSize:
+    Type: String
+    Default: 1
+
+  ClusterMaxSize:
+    Type: String
+    Default: 2
+
+  ClusterDesiredSize:
+    Type: String
+    Default: 1
+
+  ClusterRole:
+    Description: The IAM Role to allow Amazon EKS and the Kubernetes control plane to manage AWS resources on your behalf.
+    Type: String
+
+  NodeInstanceRole:
+    Description: The IAM Role to allow Amazon EC2 and to manage AWS resources on your behalf.
+    Type: String
+
+Metadata:
+
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: EKS Cluster
+        Parameters:
+          - ClusterName
+          - ClusterRole
+          - KubernetesVersion
+          - ClusterControlPlaneSecurityGroup
+      - Label:
+          default: Worker Node Configuration
+        Parameters:
+          - NodeAutoScalingGroupDesiredCapacity
+          - NodeInstanceType
+          - NodeImageIdSSMParam
+          - NodeVolumeSize
+          - KeyName
+      - Label:
+          default: Worker Network Configuration
+        Parameters:
+          - VpcId
+          - Subnets
+
+Resources:
+
+  Cluster:
+    Type: AWS::EKS::Cluster
+    Properties:
+      Name: !Ref ClusterName
+      Version: !Ref KubernetesVersion
+      RoleArn: !Ref ClusterRole
+      ResourcesVpcConfig:
+        SecurityGroupIds:
+          - !ImportValue eks-vpc-SecurityGroups
+        SubnetIds: !Split [',', 'Fn::ImportValue': !Sub '${VpcStack}-PrivateSubnets']
+
+  NodeInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: "/"
+      Roles: 
+        -
+          Ref: "DEV-eks-ec2"
+    
+
+  NodeSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for all nodes in the cluster
+      VpcId: !ImportValue eks-vpc-VpcId
+      Tags:
+        - Key: !Sub kubernetes.io/cluster/${ClusterName}
+          Value: owned
+
+  NodeSecurityGroupIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    DependsOn: NodeSecurityGroup
+    Properties:
+      Description: Allow nodes to communicate with each other
+      GroupId: !Ref NodeSecurityGroup
+      SourceSecurityGroupId: !Ref NodeSecurityGroup
+      IpProtocol: -1
+      FromPort: 0
+      ToPort: 65535
+
+  NodeSecurityGroupFromControlPlaneIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    DependsOn: NodeSecurityGroup
+    Properties:
+      Description: Allow worker Kubelets and pods to receive communication from the cluster control plane
+      GroupId: !Ref NodeSecurityGroup
+      SourceSecurityGroupId: !ImportValue eks-vpc-SecurityGroups
+      IpProtocol: tcp
+      FromPort: 1025
+      ToPort: 65535
+
+  ControlPlaneEgressToNodeSecurityGroup:
+    Type: AWS::EC2::SecurityGroupEgress
+    DependsOn: NodeSecurityGroup
+    Properties:
+      Description: Allow the cluster control plane to communicate with worker Kubelet and pods
+      GroupId: !ImportValue eks-vpc-SecurityGroups
+      DestinationSecurityGroupId: !Ref NodeSecurityGroup
+      IpProtocol: tcp
+      FromPort: 1025
+      ToPort: 65535
+
+  NodeSecurityGroupFromControlPlaneOn443Ingress:
+    Type: AWS::EC2::SecurityGroupIngress
+    DependsOn: NodeSecurityGroup
+    Properties:
+      Description: Allow pods running extension API servers on port 443 to receive communication from cluster control plane
+      GroupId: !Ref NodeSecurityGroup
+      SourceSecurityGroupId: !ImportValue eks-vpc-SecurityGroups
+      IpProtocol: tcp
+      FromPort: 443
+      ToPort: 443
+
+  ControlPlaneEgressToNodeSecurityGroupOn443:
+    Type: AWS::EC2::SecurityGroupEgress
+    DependsOn: NodeSecurityGroup
+    Properties:
+      Description: Allow the cluster control plane to communicate with pods running extension API servers on port 443
+      GroupId: !ImportValue eks-vpc-SecurityGroups
+      DestinationSecurityGroupId: !Ref NodeSecurityGroup
+      IpProtocol: tcp
+      FromPort: 443
+      ToPort: 443
+
+  ClusterControlPlaneSecurityGroupIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    DependsOn: NodeSecurityGroup
+    Properties:
+      Description: Allow pods to communicate with the cluster API Server
+      GroupId: !ImportValue eks-vpc-SecurityGroups
+      SourceSecurityGroupId: !Ref NodeSecurityGroup
+      IpProtocol: tcp
+      ToPort: 443
+      FromPort: 443
+
+      #EKSNodeGroup:
+      # Type: AWS::EKS::Nodegroup
+      # Properties:
+      #ClusterName: !Ref Cluster
+      #InstanceTypes:
+      # - !Ref NodeInstanceType
+      #NodegroupName: ng-0
+      #DiskSize: !Ref NodeVolumeSize
+      #NodeRole: !GetAtt NodeInstanceRole.Arn
+      #ScalingConfig:
+      #  MinSize: !Ref ClusterMinSize
+      #  DesiredSize: !Ref ClusterDesiredSize
+      #  MaxSize: !Ref ClusterMaxSize
+      #Subnets:
+      #  Fn::Split:
+      #      - ','
+      #      - Fn::ImportValue:
+      #          Fn::Sub: ${VpcStack}-PrivateSubnets
+
+  NodeGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    DependsOn: Cluster
+    Properties:
+      DesiredCapacity: !Ref NodeAutoScalingGroupDesiredCapacity
+      LaunchConfigurationName: !Ref NodeLaunchConfig
+      MinSize: !Ref NodeAutoScalingGroupDesiredCapacity
+      MaxSize: !Ref NodeAutoScalingGroupDesiredCapacity
+      VPCZoneIdentifier: 
+         Fn::Split:
+            - ','
+            - Fn::ImportValue:
+                Fn::Sub: ${VpcStack}-PrivateSubnets
+      Tags:
+        - Key: Name
+          Value: !Sub ${ClusterName}-node
+          PropagateAtLaunch: true
+        - Key: !Sub kubernetes.io/cluster/${ClusterName}
+          Value: owned
+          PropagateAtLaunch: true
+    UpdatePolicy:
+      AutoScalingRollingUpdate:
+        MaxBatchSize: 1
+        MinInstancesInService: !Ref NodeAutoScalingGroupDesiredCapacity
+        PauseTime: PT5M
+
+  NodeLaunchConfig:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties:
+      AssociatePublicIpAddress: true
+      IamInstanceProfile: !Ref NodeInstanceProfile
+      ImageId: !Ref NodeImageIdSSMParam
+      InstanceType: !Ref NodeInstanceProfile
+      KeyName: !Ref KeyName
+      SecurityGroups:
+        - !Ref NodeSecurityGroup
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: !Ref NodeVolumeSize
+            VolumeType: gp2
+            DeleteOnTermination: true
+      UserData:
+        Fn::Base64:
+          !Sub |
+            #!/bin/bash
+            set -o xtrace
+            /etc/eks/bootstrap.sh "${ClusterName}"
+            /opt/aws/bin/cfn-signal --exit-code $? \
+                     --stack  ${AWS::StackName} \
+                     --resource NodeGroup  \
+                     --region ${AWS::Region}
+
+  MyEC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref EKSServerImage
+      KeyName: !Ref KeyName
+      InstanceType: !Ref EKSManagementType
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: !Ref NodeVolumeSize
+            VolumeType: gp2
+            DeleteOnTermination: true
+      NetworkInterfaces: 
+         - AssociatePublicIpAddress: "false"
+           DeviceIndex: "0"
+           #GroupSet:
+           SubnetId: !Select [0, !Split [',', 'Fn::ImportValue': !Sub '${VpcStack}-PrivateSubnets']]
+      Tags:
+        - Key: Name
+          Value: EKSManagementServer
+
+
+Outputs:
+
+  ClusterCertificate:
+    Description: The cluster certificate
+    Value: !GetAtt Cluster.CertificateAuthorityData
+
+  ClusterEndpoint:
+    Description: The cluster endpoint
+    Value: !GetAtt Cluster.Endpoint

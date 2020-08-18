@@ -4,6 +4,8 @@ env:
     parameter-store:
         AWS_ACCESS_KEY_ID_PARAM: /CodeBuild/AWS_ACCESS_KEY_ID
         AWS_SECRET_ACCESS_KEY_PARAM: /CodeBuild/AWS_SECRET_ACCESS_KEY
+        
+#We can provide code build rolearn in aws-auth configmap to avoid above aws credentials
     
 phases:
   install:
@@ -11,7 +13,9 @@ phases:
             docker: 18
     commands:
       - echo Installing app dependencies...
-      - echo Installing app dependencies...
+      - curl -LO https://storage.googleapis.com/kubernetes-release/release/$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)/bin/linux/amd64/kubectl
+      - chmod +x kubectl
+      - mv ./kubectl /usr/local/bin/kubectl
       - wget https://get.helm.sh/helm-v3.3.0-linux-amd64.tar.gz -O helm.tar.gz; tar -xzf helm.tar.gz
       - chmod +x ./linux-amd64/helm
       - mv ./linux-amd64/helm /usr/local/bin/helm
@@ -33,8 +37,6 @@ phases:
       - echo Building the Docker image...
       - docker build -t $IMAGE_REPO_NAME:$IMAGE_TAG --build-arg AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID_PARAM --build-arg AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY_PARAM .
       - docker tag $IMAGE_REPO_NAME:$IMAGE_TAG $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME:$IMAGE_TAG
-      - docker build -t $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME:$ENV -t $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME:$COMMIT_HASH .
-
   post_build:
     commands:
       - echo Entered the post_build phase...

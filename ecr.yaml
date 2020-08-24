@@ -18,11 +18,11 @@ Resources:
       RepositoryPolicyText:
         Version: '2012-10-17'
         Statement:
-        - Sid: AllowCrossAccountAccess
+        - Sid: AllowCrossAccountAccess # or AllowpushPull
           Effect: Allow
           Principal:
             AWS:
-              - arn:aws:iam::843913149904:root 
+              - arn:aws:iam::843913149904:root #You can give any role ARN here for making it more secure
           Action:
             - ecr:BatchGetImage
             - ecr:BatchCheckLayerAvailability

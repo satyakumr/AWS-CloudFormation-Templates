@@ -93,16 +93,46 @@ Metadata:
 
 Resources:
 
+  ClusterRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: eks.amazonaws.com
+            Action: sts:AssumeRole
+      Path: "/"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonEKSClusterPolicy
+
   Cluster:
     Type: AWS::EKS::Cluster
     Properties:
       Name: !Ref ClusterName
       Version: !Ref KubernetesVersion
-      RoleArn: !Ref ClusterRole
+      RoleArn: !GetAtt ClusterRole.Arn
       ResourcesVpcConfig:
         SecurityGroupIds:
           - !ImportValue eks-vpc-pub-SecurityGroups
         SubnetIds: !Split [',', 'Fn::ImportValue': !Sub '${VpcStack}-PrivateSubnets']
+        
+  NodeInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      Path: "/"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy
+        - arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy
+        - arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
 
   NodeSecurityGroup:
     Type: AWS::EC2::SecurityGroup
@@ -186,6 +216,8 @@ Resources:
       InstanceTypes:
        - !Ref NodeInstanceType
       NodegroupName: Titan-DEV-NG
+      RemoteAccess:
+        Ec2SshKey: !Ref KeyName
       DiskSize: !Ref NodeVolumeSize
       NodeRole: !Ref NodeInstanceRole 
       ScalingConfig:
@@ -230,6 +262,59 @@ Resources:
           curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
           unzip awscliv2.zip
           sudo ./aws/install
+         
+  LoadBalancerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Join ['', [!Ref ClusterName, LoadBalancerSecurityGroup]]
+      VpcId: !ImportValue DEV-VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: !Ref LoadBalancerPort
+          ToPort: !Ref LoadBalancerPort
+          CidrIp: 0.0.0.0/0
+
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      # will look for a 200 status code by default unless specified otherwise
+      Name: !Join ['', [!Ref ClusterName, TargetGroup]]
+      Port: !Ref ContainerPort
+      Protocol: TCP
+      TargetGroupAttributes:
+        - Key: deregistration_delay.timeout_seconds
+          Value: 60 # default is 300
+      TargetType: instance
+      VpcId: !ImportValue DEV-VpcId
+
+  ListenerHTTP:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - TargetGroupArn: !Ref TargetGroup
+          Type: forward
+      LoadBalancerArn: !Ref LoadBalancer
+      Port: !Ref LoadBalancerPort
+      Protocol: TCP
+      #Certificates:
+      #  - CertificateArn: !Ref Certificate
+
+  LoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      LoadBalancerAttributes:
+        # this is the default, but is specified here in case it needs to be changed
+        - Key: deletion_protection.enabled
+          Value: false
+      Name: !Join ['', [!Ref ClusterName, LoadBalancer]]
+      Type: network
+      # "internal" is also an option
+      Scheme: internal
+      Subnets:
+        Fn::Split:
+           - ','
+           - Fn::ImportValue:
+                Fn::Sub: ${VpcStack}-PrivateSubnetsForMicroservic
        
 
 Outputs:
@@ -241,3 +326,15 @@ Outputs:
   ClusterEndpoint:
     Description: The cluster endpoint
     Value: !GetAtt Cluster.Endpoint
+    
+  NodeSecurityGroups:
+    Description: Security group for the cluster control plane communication with worker nodes
+    Value: !Join [ ",", [ !Ref NodeSecurityGroup ] ]
+    Export:
+      Name: !Sub ${AWS::StackName}-NodeSecurityGroups
+
+  LoadBalancerSecurityGroups:
+    Description: Security group for the cluster control plane communication with worker nodes
+    Value: !Join [ ",", [ !Ref LoadBalancerSecurityGroup ] ]
+    Export:
+      Name: !Sub ${AWS::StackName}-LoadBalancerSecurityGroups

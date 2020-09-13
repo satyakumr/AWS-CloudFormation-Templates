@@ -220,38 +220,75 @@ Resources:
     Properties:
       RoleArn: !GetAtt CodePipelineServiceRole.Arn
       Stages:
-        - Name: Source
+        - Name: StagingEnvironment
           Actions:
-            - Name: Source
+            - Name: SourceForStaging
               ActionTypeId:
                 Category: Source
                 Owner: ThirdParty
                 Version: 1
                 Provider: GitHub
               OutputArtifacts:
-                - Name: SourceCodeOutputArtifact
+                - Name: SourceCodeOutputArtifactStaging
               Configuration:
                 Owner: !Ref GitHubRepoOwner
                 Repo: !Ref GitHubRepo
                 Branch: !Ref GitHubBranch
                 OAuthToken: !Ref GitHubOAuthToken
                 PollForSourceChanges: false
-              RunOrder: 1
-        - Name: Build
-          Actions:
-            - Name: CodeBuild
+              RunOrder: 1  
+            - Name: SourceForDev
+              ActionTypeId:
+                Category: Source
+                Owner: ThirdParty
+                Version: 1
+                Provider: GitHub
+              OutputArtifacts:
+                - Name: SourceCodeOutputArtifactDev
+              Configuration:
+                Owner: !Ref GitHubRepoOwner
+                Repo: !Ref GitHubRepo
+                Branch: !Ref GitHubBranch
+                OAuthToken: !Ref GitHubOAuthToken
+                PollForSourceChanges: false
+              RunOrder: 2
+        - Name: StagingEnvironmentDeployment
+          Actions: 
+            - Name: DeploytoStage
               ActionTypeId:
                 Category: Build
                 Owner: AWS
                 Version: 1
                 Provider: CodeBuild
               InputArtifacts:
-                - Name: SourceCodeOutputArtifact
+                - Name: SourceCodeOutputArtifactStaging
               OutputArtifacts:
                 - Name: BuildOutputArtifact
               Configuration:
                 ProjectName: !Ref ProjectName
               RunOrder: 1
+        - Name: DevEnvironment
+          Actions:
+            - Name: ApproveForDev
+              ActionTypeId:
+                Category: Approval
+                Owner: AWS
+                Version: 1
+                Provider: Manual
+              RunOrder: 2
+            - Name: BuildAndDeploytoDev
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Version: 1
+                Provider: CodeBuild
+              InputArtifacts:
+                - Name: SourceCodeOutputArtifactDev
+              OutputArtifacts:
+                - Name: BuildOutputArtifactDev
+              Configuration:
+                ProjectName: !Ref ProjectName
+              RunOrder: 2
       ArtifactStore:
         Type: S3
         Location: !Ref DeploymentArtifactBucket

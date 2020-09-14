@@ -220,7 +220,7 @@ Resources:
     Properties:
       RoleArn: !GetAtt CodePipelineServiceRole.Arn
       Stages:
-        - Name: StagingEnvironment
+        - Name: SourceCode
           Actions:
             - Name: SourceForStaging
               ActionTypeId:
@@ -251,7 +251,7 @@ Resources:
                 Branch: !Ref GitHubBranch
                 OAuthToken: !Ref GitHubOAuthToken
                 PollForSourceChanges: false
-              RunOrder: 2
+              RunOrder: 1 
         - Name: StagingEnvironmentDeployment
           Actions: 
             - Name: DeploytoStage
@@ -265,11 +265,16 @@ Resources:
               OutputArtifacts:
                 - Name: BuildOutputArtifact
               Configuration:
+                EnvironmentVariables: !Sub '[{"name":"AWS_DEFAULT_REGION","value":"ap-south-1","type":"PLAINTEXT"},
+                                       {"name":"AWS_ACCOUNT_ID","value":"${AWSAccountID}","type":"PLAINTEXT"},
+                                       {"name":"IMAGE_REPO_NAME","value":"${ECRRepoName}","type":"PLAINTEXT"},
+                                       {"name":"AWS_CLUSTER_NAME","value":"${EKSClusterName}","type":"PLAINTEXT"}]'
+                                       
                 ProjectName: !Ref ProjectName
               RunOrder: 1
-        - Name: DevEnvironment
+        - Name: DevEnvironmentDeployment
           Actions:
-            - Name: ApproveForDev
+            - Name: ApproveForDevDeployment
               ActionTypeId:
                 Category: Approval
                 Owner: AWS
@@ -287,6 +292,10 @@ Resources:
               OutputArtifacts:
                 - Name: BuildOutputArtifactDev
               Configuration:
+                EnvironmentVariables: !Sub '[{"name":"AWS_DEFAULT_REGION","value":"ap-south-1","type":"PLAINTEXT"},
+                                       {"name":"AWS_ACCOUNT_ID","value":"${AWSAccountID}","type":"PLAINTEXT"},
+                                       {"name":"IMAGE_REPO_NAME","value":"${ECRRepoName}","type":"PLAINTEXT"},
+                                       {"name":"AWS_CLUSTER_NAME","value":"${EKSClusterName}","type":"PLAINTEXT"}]'
                 ProjectName: !Ref ProjectName
               RunOrder: 2
       ArtifactStore:

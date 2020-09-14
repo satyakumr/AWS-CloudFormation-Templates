@@ -1,0 +1,222 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Amazon EKS Sample VPC - Private and Public subnets'
+
+Parameters:
+
+  VpcBlock:
+    Type: String
+    Description: The CIDR range for the VPC. This should be a valid private (RFC 1918) CIDR range.
+
+  PublicSubnet01Block:
+    Type: String
+    Description: CidrBlock for public subnet 01 within the VPC
+
+  PublicSubnet02Block:
+    Type: String
+    Description: CidrBlock for public subnet 01 within the VPC
+
+  PrivateSubnet01Block:
+    Type: String
+    Description: CidrBlock for public subnet 02 within the VPC
+
+  PrivateSubnet02Block:
+    Type: String
+    Description: CidrBlock for private subnet 01 within the VPC
+
+  PrivateSubnet03Block:
+    Type: String
+    Description: CidrBlock for private subnet 02 within the VPC
+
+  EKSServerImage: 
+    Type: String
+
+  InstanceType:
+    Type: String
+
+  KeyName: 
+    Type: String
+
+Resources:
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock:  !Ref VpcBlock
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+      - Key: Name
+        Value: !Sub '${AWS::StackName}-VPC'
+
+  InternetGateway:
+    Type: "AWS::EC2::InternetGateway"
+    Properties: 
+      Tags:
+      - Key: Name
+        Value: !Sub '${AWS::StackName}-IGW'
+
+  VPCGatewayAttachment:
+    Type: "AWS::EC2::VPCGatewayAttachment"
+    Properties:
+      InternetGatewayId: !Ref InternetGateway
+      VpcId: !Ref VPC
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+      - Key: Name
+        Value: !Sub '${AWS::StackName}-PubRT'
+      - Key: Network
+        Value: Public
+
+  PublicRoute:
+    DependsOn: VPCGatewayAttachment
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnet01:
+    Type: AWS::EC2::Subnet
+    Properties:
+      MapPublicIpOnLaunch: true
+      AvailabilityZone:
+        Fn::Select:
+        - '0'
+        - Fn::GetAZs:
+            Ref: AWS::Region
+      CidrBlock:
+        Ref: PublicSubnet01Block
+      VpcId:
+        Ref: VPC
+      Tags:
+      - Key: Name
+        Value: !Sub "${AWS::StackName}-PublicSubnet01"
+      - Key: kubernetes.io/role/elb
+        Value: 1
+
+  PublicSubnet02:
+    Type: AWS::EC2::Subnet
+    Properties:
+      MapPublicIpOnLaunch: true
+      AvailabilityZone:
+        Fn::Select:
+        - '1'
+        - Fn::GetAZs:
+            Ref: AWS::Region
+      CidrBlock:
+        Ref: PublicSubnet02Block
+      VpcId:
+        Ref: VPC
+      Tags:
+      - Key: Name
+        Value: !Sub "${AWS::StackName}-PublicSubnet02"
+      - Key: kubernetes.io/role/elb
+        Value: 1
+
+  PublicSubnet01RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet01
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicSubnet02RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet02
+      RouteTableId: !Ref PublicRouteTable
+
+  EC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref EKSServerImage
+      KeyName: !Ref KeyName
+      InstanceType: !Ref InstanceType
+      BlockDeviceMappings:
+       - DeviceName: /dev/xvda
+         Ebs:
+           VolumeSize: 10
+           VolumeType: gp2
+           DeleteOnTermination: true
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: "true"
+          DeviceIndex: "0"
+          SubnetId: !Ref PublicSubnet01
+      Tags:
+        - Key: Name
+          Value: ApplicationServer
+
+  InstanceSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: Instance Security Group
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: '22'
+          ToPort: '22'
+          CidrIp: 0.0.0.0/0
+
+  ElasticacheSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Elasticache Security Group
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: '6379'
+          ToPort: '6379'
+          SourceSecurityGroupId: !Ref InstanceSecurityGroup
+
+  ElasticacheCluster:
+    Type: 'AWS::ElastiCache::CacheCluster'
+    Properties:
+      AutoMinorVersionUpgrade: 'true'
+      Engine: redis
+      EngineVersion: "5.0.6"
+      Port: 6379
+      CacheNodeType: cache.t3.micro
+      NumCacheNodes: '1'
+      ClusterName: "Test-Redis"
+      CacheSubnetGroupName: !Ref ClusterSubnetGroup
+      VpcSecurityGroupIds: 
+        - !GetAtt
+          - ElasticacheSecurityGroup
+          - GroupId
+
+  ClusterSubnetGroup:
+    Type: AWS::ElastiCache::SubnetGroup
+    Properties:
+      CacheSubnetGroupName: Test-Redis-SG
+      Description: Cache Subnet Group
+      SubnetIds: 
+        - !Ref PublicSubnet01
+        - !Ref PublicSubnet02
+
+Outputs:
+
+  SubnetIds:
+    Description: Subnets IDs in the VPC
+    Value: !Join [ ",", [ !Ref PublicSubnet01, !Ref PublicSubnet02 ] ]
+
+  PublicSubnets:
+    Description: Public subnets
+    Value: !Sub ${PublicSubnet01},${PublicSubnet02}
+    Export:
+      Name: !Sub ${AWS::StackName}-PublicSubnets
+
+  VpcId:
+    Description: The VPC Id
+    Value: !Ref VPC
+    Export:
+     Name: !Sub ${AWS::StackName}-VpcId
+
+  CidrBlock:
+    Description: VPC CIDR block for convenience
+    Value: !Ref VpcBlock
+    Export:
+      Name: !Sub ${AWS::StackName}-CidrBlock
+

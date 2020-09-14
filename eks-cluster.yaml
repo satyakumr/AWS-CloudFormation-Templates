@@ -209,7 +209,7 @@ Resources:
       ToPort: 443
       FromPort: 443
 
-  EKSNodeGroup:
+  EKSNodeGroup:                       # For AWS EKS Managed NodeGroup
     Type: AWS::EKS::Nodegroup
     Properties:
       ClusterName: !Ref Cluster
@@ -287,7 +287,7 @@ Resources:
       TargetType: instance
       VpcId: !ImportValue DEV-VpcId
 
-  ListenerHTTP:
+  ListenerTCP:
     Type: AWS::ElasticLoadBalancingV2::Listener
     Properties:
       DefaultActions:
@@ -298,6 +298,8 @@ Resources:
       Protocol: TCP
       #Certificates:
       #  - CertificateArn: !Ref Certificate
+
+# NLB Creation
 
   LoadBalancer:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
@@ -314,7 +316,67 @@ Resources:
         Fn::Split:
            - ','
            - Fn::ImportValue:
-                Fn::Sub: ${VpcStack}-PrivateSubnetsForMicroservic
+                Fn::Sub: ${VpcStack}-PrivateSubnetsForMicroservice
+                
+# For Self Managed NodeGroup
+
+  NodeGroup:                                  
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      DesiredCapacity: !Ref NodeAutoScalingGroupDesiredCapacity
+      LaunchConfigurationName: !Ref NodeLaunchConfig
+      #LoadBalancerNames: !Ref LoadBalancer 
+      TargetGroupARNs: 
+        - !Ref TargetGroup
+      MinSize: !Ref ClusterMinSize
+      MaxSize: !Ref ClusterMaxSize
+      VPCZoneIdentifier: 
+        Fn::Split:
+            - ','
+            - Fn::ImportValue:
+                Fn::Sub: ${VpcStack}-PrivateSubnets
+      Tags:
+        - Key: Name
+          Value: !Sub ${ClusterName}-WorkerNode01
+          PropagateAtLaunch: true
+        - Key: !Sub kubernetes.io/cluster/${ClusterName}
+          Value: owned
+          PropagateAtLaunch: true
+    UpdatePolicy:
+      AutoScalingRollingUpdate:
+        MaxBatchSize: 1
+        MinInstancesInService: !Ref NodeAutoScalingGroupDesiredCapacity
+        PauseTime: PT5M
+
+  NodeLaunchConfig:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties:
+      AssociatePublicIpAddress: true
+      IamInstanceProfile: !Ref NodeInstanceProfile
+      ImageId: !If
+          - HasNodeImageId
+          - !Ref NodeImageId
+          - !Ref NodeImageIdSSMParam
+      InstanceType: !Ref NodeInstanceType
+      KeyName: !Ref KeyName
+      SecurityGroups:
+        - !Ref NodeSecurityGroup
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: !Ref NodeVolumeSize
+            VolumeType: gp2
+            DeleteOnTermination: true
+      UserData: !Base64
+          "Fn::Sub": |
+            #!/bin/bash
+            set -o xtrace
+            /etc/eks/bootstrap.sh ${ClusterName} 
+            /opt/aws/bin/cfn-signal --exit-code $? \
+                     --stack  ${AWS::StackName} \
+                     --resource NodeGroup  \
+                     --region ${AWS::Region}              
+ 
        
 
 Outputs:

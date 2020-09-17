@@ -208,28 +208,7 @@ Resources:
       IpProtocol: tcp
       ToPort: 443
       FromPort: 443
-
-  EKSNodeGroup:                       # For AWS EKS Managed NodeGroup
-    Type: AWS::EKS::Nodegroup
-    Properties:
-      ClusterName: !Ref Cluster
-      InstanceTypes:
-       - !Ref NodeInstanceType
-      NodegroupName: Titan-DEV-NG
-      RemoteAccess:
-        Ec2SshKey: !Ref KeyName
-      DiskSize: !Ref NodeVolumeSize
-      NodeRole: !Ref NodeInstanceRole 
-      ScalingConfig:
-        MinSize: !Ref ClusterMinSize
-        DesiredSize: !Ref ClusterDesiredSize
-        MaxSize: !Ref ClusterMaxSize
-      Subnets:
-        Fn::Split:
-            - ','
-            - Fn::ImportValue:
-                Fn::Sub: ${VpcStack}-PrivateSubnets
-
+      
   MyEC2Instance:
     Type: AWS::EC2::Instance
     Properties:
@@ -262,6 +241,81 @@ Resources:
           curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
           unzip awscliv2.zip
           sudo ./aws/install
+      
+  InstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security Group for MongoDB container
+      GroupName: EKSManagementSecurityGroup
+      VpcId: !ImportValue eks-vpc-pub-VpcId
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: 27017
+        ToPort: 27017
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: tcp
+        FromPort: 22
+        ToPort: 22
+        CidrIp: 0.0.0.0/0
+      Tags:
+      - Key: Name
+        Value: EKSManagementSecurityGroup
+    
+  EKSLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: EKSWorkerNodeLaunchTemplate
+      LaunchTemplateData:
+        InstanceType: !Ref NodeInstanceType
+        KeyName: !Ref KeyName
+        DisableApiTermination: 'true'
+        ImageId: !If
+          - HasNodeImageId
+          - !Ref NodeImageId
+          - !Ref NodeImageIdSSMParam
+        BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: !Ref NodeVolumeSize
+            VolumeType: gp2
+            DeleteOnTermination: true
+        SecurityGroupIds:
+            - !Ref NodeSecurityGroup
+        TagSpecifications:
+        -  ResourceType: instance
+           Tags:
+            - Key: Name
+              Value: EKSWorkerNode02
+        UserData: !Base64
+          "Fn::Sub": |
+            #!/bin/bash
+            set -o xtrace
+            /etc/eks/bootstrap.sh ${ClusterName}
+            /opt/aws/bin/cfn-signal --exit-code $? \
+                     --stack  ${AWS::StackName} \
+                     --resource NodeGroup  \
+                     --region ${AWS::Region}
+
+  EKSNodeGroup:                       # For AWS EKS Managed NodeGroup
+    Type: AWS::EKS::Nodegroup
+    Properties:
+      ClusterName: !Ref Cluster
+      InstanceTypes:
+       - !Ref NodeInstanceType
+      NodegroupName: Titan-DEV-NG
+      RemoteAccess:
+        Ec2SshKey: !Ref KeyName
+      DiskSize: !Ref NodeVolumeSize
+      NodeRole: !Ref NodeInstanceRole 
+      ScalingConfig:
+        MinSize: !Ref ClusterMinSize
+        DesiredSize: !Ref ClusterDesiredSize
+        MaxSize: !Ref ClusterMaxSize
+      Subnets:
+        Fn::Split:
+            - ','
+            - Fn::ImportValue:
+                Fn::Sub: ${VpcStack}-PrivateSubnets
          
   LoadBalancerSecurityGroup:
     Type: AWS::EC2::SecurityGroup
@@ -377,8 +431,6 @@ Resources:
                      --resource NodeGroup  \
                      --region ${AWS::Region}              
  
-       
-
 Outputs:
 
   ClusterCertificate:

@@ -35,6 +35,12 @@ Parameters:
     Type: String
   EKSClusterName:
     Type: String
+  AlarmEmail:
+    Type: String
+  DEVAccountID:
+    Type: String
+  DEVEKSClusterName:
+    Type: String
 
 
 Conditions:
@@ -108,10 +114,6 @@ Resources:
             Resource: "*"
           - Effect: Allow
             Action:
-              - ssm:GetParameters
-            Resource: "*"
-          - Effect: Allow
-            Action:
               - eks:*
             Resource: "*"
           - Effect: Allow
@@ -144,17 +146,9 @@ Resources:
         EnvironmentVariables:
           - Name: BUILD_ARTIFACT_BUCKET
             Value: !Ref DeploymentArtifactBucket
-          - Name: AWS_DEFAULT_REGION
-            Value: ap-south-1
-          - Name: AWS_ACCOUNT_ID
-            Value: !Ref AWSAccountID
-          - Name: IMAGE_REPO_NAME
-            Value: !Ref ECRRepoName
-          - Name: AWS_CLUSTER_NAME
-            Value: !Ref EKSClusterName
       Source:
         Type: CODEPIPELINE
-        BuildSpec: buildspec.yml
+        BuildSpec: codepipeline/buildspec.yml
       TimeoutInMinutes: 10
       VpcConfig:
           VpcId: !ImportValue eks-vpc-pub-VpcId
@@ -171,7 +165,46 @@ Resources:
       GroupName: Codebuild Internet Group
       GroupDescription: 'CodeBuild SecurityGroup'
       VpcId: !ImportValue eks-vpc-pub-VpcId
-     
+
+  MyQueue: 
+    Type: AWS::SQS::Queue
+    Properties: 
+      QueueName: "DEVQueue"
+ 
+  QueueDepthAlarm: 
+    Type: AWS::CloudWatch::Alarm
+    Properties: 
+      AlarmDescription: "Alarm if queue depth increases to more than 10 messages"
+      Namespace: "AWS/SQS"
+      MetricName: "ApproximateNumberOfMessagesVisible"
+      Dimensions: 
+        - 
+          Name: "QueueName"
+          Value: 
+            Fn::GetAtt: 
+              - "MyQueue"
+              - "QueueName"
+      Statistic: "Sum"
+      Period: "300"
+      EvaluationPeriods: "1"
+      Threshold: "10"
+      ComparisonOperator: "GreaterThanThreshold"
+      AlarmActions: 
+        - 
+          Ref: "CodePipelineSNSTopics"
+      InsufficientDataActions: 
+        - 
+          Ref: "CodePipelineSNSTopics"
+
+  CodePipelineSNSTopics:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: DEVTopic
+      DisplayName: DEV Deployment Approval
+      KmsMasterKeyId: String
+      Subscription:
+        - Endpoint: !Ref AlarmEmail
+          Protocol: "email"  
 
   CodePipelineServiceRole:
     Type: AWS::IAM::Role
@@ -214,6 +247,10 @@ Resources:
               - codebuild:StartBuild
               - codebuild:StopBuild
             Resource: !GetAtt CodeBuildProject.Arn
+          - Effect: Allow
+            Action:
+              - sns:Publish
+            Resource: "*"
 
   CodePipeline:
     Type: AWS::CodePipeline::Pipeline
@@ -268,19 +305,24 @@ Resources:
                 EnvironmentVariables: !Sub '[{"name":"AWS_DEFAULT_REGION","value":"ap-south-1","type":"PLAINTEXT"},
                                        {"name":"AWS_ACCOUNT_ID","value":"${AWSAccountID}","type":"PLAINTEXT"},
                                        {"name":"IMAGE_REPO_NAME","value":"${ECRRepoName}","type":"PLAINTEXT"},
-                                       {"name":"AWS_CLUSTER_NAME","value":"${EKSClusterName}","type":"PLAINTEXT"}]'
+                                       {"name":"AWS_CLUSTER_NAME","value":"${EKSClusterName}","type":"PLAINTEXT"},
+                                       {"name":"MY_SSM_PARAM","value":"${SsmParameterStoreKey}","type":"PARAMETER_STORE"}]'
                                        
                 ProjectName: !Ref ProjectName
               RunOrder: 1
-        - Name: DevEnvironmentDeployment
-          Actions:
             - Name: ApproveForDevDeployment
               ActionTypeId:
                 Category: Approval
                 Owner: AWS
                 Version: 1
                 Provider: Manual
+              Configuration:
+                NotificationArn:
+                  Fn::Sub: arn:aws:sns:${AWS::Region}:${AWS::AccountId}:DEVTopic
+                CustomData: Approve once DEV has been completed.
               RunOrder: 2
+        - Name: DevEnvironmentDeployment
+          Actions:
             - Name: BuildAndDeploytoDev
               ActionTypeId:
                 Category: Build
@@ -293,12 +335,31 @@ Resources:
                 - Name: BuildOutputArtifactDev
               Configuration:
                 EnvironmentVariables: !Sub '[{"name":"AWS_DEFAULT_REGION","value":"ap-south-1","type":"PLAINTEXT"},
-                                       {"name":"AWS_ACCOUNT_ID","value":"${AWSAccountID}","type":"PLAINTEXT"},
+                                       {"name":"AWS_ACCOUNT_ID","value":"${DEVAccountID}","type":"PLAINTEXT"},
                                        {"name":"IMAGE_REPO_NAME","value":"${ECRRepoName}","type":"PLAINTEXT"},
-                                       {"name":"AWS_CLUSTER_NAME","value":"${EKSClusterName}","type":"PLAINTEXT"}]'
+                                       {"name":"AWS_CLUSTER_NAME","value":"${DEVEKSClusterName}","type":"PLAINTEXT"}
+                                       {"name":"MY_SSM_PARAM","value":"${SsmParameterStoreKey}","type":"PARAMETER_STORE"}]'
                 ProjectName: !Ref ProjectName
-              RunOrder: 2
+              RunOrder: 1
       ArtifactStore:
         Type: S3
         Location: !Ref DeploymentArtifactBucket
       Name: !Ref ProjectName
+
+Outputs: 
+  QueueURL: 
+    Description: "URL of new Amazon SQS Queue"
+    Value: 
+      Ref: "MyQueue"
+  QueueARN: 
+    Description: "ARN of new AmazonSQS Queue"
+    Value: 
+      Fn::GetAtt: 
+        - "MyQueue"
+        - "Arn"
+  QueueName: 
+    Description: "Name of new Amazon SQS Queue"
+    Value: 
+      Fn::GetAtt: 
+        - "MyQueue"
+        - "QueueName"

@@ -133,6 +133,9 @@ Resources:
         - arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy
         - arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy
         - arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
+        - arn:aws:iam::aws:policy/AutoScalingFullAccess
+        - arn:aws:iam::aws:policy/AWSXrayFullAccess
+        - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
 
   NodeSecurityGroup:
     Type: AWS::EC2::SecurityGroup
@@ -396,6 +399,12 @@ Resources:
         - Key: !Sub kubernetes.io/cluster/${ClusterName}
           Value: owned
           PropagateAtLaunch: true
+        - Key: k8s.io/cluster-autoscaler/${ClusterName}
+          Value: owned
+          PropagateAtLaunch: true
+        - Key: k8s.io/cluster-autoscaler/enabled
+          Value: true
+          PropagateAtLaunch: true
     UpdatePolicy:
       AutoScalingRollingUpdate:
         MaxBatchSize: 1
@@ -429,7 +438,13 @@ Resources:
             /opt/aws/bin/cfn-signal --exit-code $? \
                      --stack  ${AWS::StackName} \
                      --resource NodeGroup  \
-                     --region ${AWS::Region}              
+                     --region ${AWS::Region}    
+            #
+            #!/bin/bash
+            cd /tmp
+            sudo yum install -y https://s3.amazonaws.com/ec2-downloads-windows/SSMAgent/latest/linux_amd64/amazon-ssm-agent.rpm
+            sudo systemctl enable amazon-ssm-agent
+            sudo systemctl start amazon-ssm-agent
  
 Outputs:
 

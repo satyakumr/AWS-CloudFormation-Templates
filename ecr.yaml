@@ -9,6 +9,50 @@ Parameters:
 
 Resources:
 
+  Description: Base ECR stack
+
+  ECRRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - sts:AssumeRole
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+  
+  ECRRolePolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: ECRRolePolicy
+      Roles:
+        - !Ref ECRRole
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - ecr:GetAuthorizationToken
+              - ecr:BatchCheckLayerAvailability
+              - ecr:GetDownloadUrlForLayer
+              - ecr:GetRepositoryPolicy
+              - ecr:DescribeRepositories
+              - ecr:ListImages
+              - ecr:DescribeImages
+              - ecr:BatchGetImage
+              - ecr:GetLifecyclePolicy
+              - ecr:GetLifecyclePolicyPreview
+              - ecr:ListTagsForResource
+              - ecr:DescribeImageScanFindings
+              - ecr:InitiateLayerUpload
+              - ecr:UploadLayerPart
+              - ecr:CompleteLayerUpload
+              - ecr:PutImage
+            Resource: "*"
+
   Repository:
     Type: AWS::ECR::Repository
     DeletionPolicy: Retain
@@ -23,6 +67,7 @@ Resources:
           Principal:
             AWS:
               - arn:aws:iam::843913149904:root #You can give any role ARN here for making it more secure
+              - !GetAtt ECRRole.Arn
           Action:
             - ecr:BatchGetImage
             - ecr:BatchCheckLayerAvailability

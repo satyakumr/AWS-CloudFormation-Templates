@@ -1,0 +1,217 @@
+  def Workspace = "/var/lib/jenkins/workspace"
+  def Creds = "aws-id"
+  def region = "ap-south-1"
+  def image = "kl-uaa-service"
+  def registryUrl = "653499601037.dkr.ecr.ap-south-1.amazonaws.com/${image}"	
+	pipeline {
+		agent any
+		environment {
+		git_commit_hash = sh(script: 'git describe --tags --always', returnStdout: true).trim()
+		}
+   		stages {
+//			stage('Git Checkout') {
+//				steps {
+//					git branch: 'master',
+//						credentialsId: 'Gitlab-pvtkey',
+//							url: 'git@gitlab.com:khoslalabs/kl-uaa-service.git'
+//					}
+//			}	
+//			stage('Docker Build and Push'){
+//				steps{
+//        			script {	
+//						withDockerRegistry([credentialsId: "ecr:$region:$Creds", url: 'https://653499601037.dkr.ecr.ap-south-1.amazonaws.com/kl-uaa-service']) {
+//			
+//				echo "build"
+//				sh "docker build -t ${registryUrl}:${git_commit_hash} ."
+//
+//				echo "push"
+//				sh "docker push ${registryUrl}:${git_commit_hash}"
+//						  }
+//						}
+//					  }
+//
+//					}
+
+			stage('Deploy-UAT'){
+				steps{
+					echo "Deploy"
+					sh "ansible-playbook ${Workspace}/${image}/ansible/uat-deploy.yaml --extra-vars registryUrl=${registryUrl} --extra-vars git_commit_hash=${git_commit_hash}"
+					}
+				}
+				
+			 stage('Approval for Sandbox') {
+            agent none
+            steps {
+                script {
+                    def deploymentDelay = input id: 'Deploy', message: 'Deploy to Sandbox?', parameters: [choice(choices: ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13', '14', '15', '16', '17', '18', '19', '20', '21', '22', '23', '24'], description: 'Hours to delay Sandbox?', name: 'deploymentDelay')]
+                    sleep time: deploymentDelay.toInteger(), unit: 'HOURS'
+                }
+            }
+        }			
+		
+			stage('Deploy-Sandbox'){
+				steps{
+					echo "Deploy"
+					sh "ansible-playbook ${Workspace}/${image}/ansible/sandbo-deploy.yaml --extra-vars registryUrl=${registryUrl} --extra-vars git_commit_hash=${git_commit_hash}"
+					}
+				}
+   		}
+				
+				post {
+    always {
+        emailext body: 'A Test EMail', recipientProviders: [[$class: 'DevelopersRecipientProvider'], [$class: 'RequesterRecipientProvider']], subject: 'Test'
+    }
+}
+====================================================
+
+  def Workspace = "/var/lib/jenkins/workspace"
+  def Creds = "aws-id"
+  def region = "ap-south-1"
+  def image = "kl-uaa-service"
+  def chartname = "kl-uaa-service"
+  def chartpath = "/var/lib/jenkins/workspace/kl-uaa-service/ansible/kl-uaa-service"
+  def registryUrl = "146776836293.dkr.ecr.ap-south-1.amazonaws.com/${image}"	
+	pipeline {
+		agent any
+		environment {
+		git_commit_hash = sh(script: 'git describe --tags --always', returnStdout: true).trim()
+		}
+   		stages {
+			stage('Git Checkout') {
+				steps {
+					git branch: 'master',
+						credentialsId: 'Gitlab-pvtkey',
+							url: 'git@gitlab.com:khoslalabs/kl-uaa-service.git'
+					}
+			}	
+			stage('Docker Build and Push'){
+				steps{
+      			script {	
+						withDockerRegistry([credentialsId: "ecr:$region:$Creds", url: 'https://146776836293.dkr.ecr.ap-south-1.amazonaws.com/kl-uaa-service']) {/
+			
+				echo "build"
+				sh "docker build -t ${registryUrl}:${git_commit_hash} ."
+
+				echo "push"
+				sh "docker push ${registryUrl}:${git_commit_hash}"
+						  }
+						}
+					  }
+
+					}
+			stage('Deploy-Upgrade on K8s'){
+				steps{
+					echo "Deploy"
+//					sh "ansible-playbook ${Workspace}/${image}/ansible/deploy.yaml --extra-vars registryUrl=${registryUrl} --extra-vars git_commit_hash=${git_commit_hash}"
+					sh "helm upgrade --install kl-uaa-service /var/lib/jenkins/workspace/kl-uaa-service/ansible/kl-uaa-service --reuse-values --set image.tag={{git_commit_hash}}"
+					}
+				}
+
+ }
+}
+
+===================================================
+
+
+
+  def Workspace = "/var/lib/jenkins/workspace"
+  def Creds = "aws-id"
+  def region = "ap-south-1"
+  def image = "kl-uaa-service"
+  def registryUrl = "653499601037.dkr.ecr.ap-south-1.amazonaws.com/${image}"	
+	pipeline {
+		agent any
+		environment {
+		git_commit_hash = sh(script: 'git describe --tags --always', returnStdout: true).trim()
+		}
+   		stages {
+//			stage('Git Checkout') {
+//				steps {
+//					git branch: 'master',
+//						credentialsId: 'Gitlab-pvtkey',
+//							url: 'git@gitlab.com:khoslalabs/kl-uaa-service.git'
+//					}
+//			}	
+//			stage('Docker Build and Push'){
+//				steps{
+//        			script {	
+//						withDockerRegistry([credentialsId: "ecr:$region:$Creds", url: 'https://653499601037.dkr.ecr.ap-south-1.amazonaws.com/kl-uaa-service']) {
+//			
+//				echo "build"
+//				sh "docker build -t ${registryUrl}:${git_commit_hash} ."
+//
+//				echo "push"
+//				sh "docker push ${registryUrl}:${git_commit_hash}"
+//						  }
+//						}
+//					  }
+//
+//					}
+
+			stage('Deploy-UAT'){
+				steps{
+					echo "Deploy"
+					sh "ansible-playbook ${Workspace}/${image}/ansible/uat-deploy.yaml --extra-vars registryUrl=${registryUrl} --extra-vars git_commit_hash=${git_commit_hash}"
+					}
+				}
+				
+			 stage('Approval for Sandbox') {
+            agent none
+            steps {
+                script {
+                    def deploymentDelay = input id: 'Deploy', message: 'Deploy to Sandbox?', parameters: [choice(choices: ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13', '14', '15', '16', '17', '18', '19', '20', '21', '22', '23', '24'], description: 'Hours to delay Sandbox?', name: 'deploymentDelay')]
+                    sleep time: deploymentDelay.toInteger(), unit: 'HOURS'
+                }
+            }
+        }			
+		
+			stage('Deploy-Sandbox'){
+				steps{
+					echo "Deploy"
+					sh "ansible-playbook ${Workspace}/${image}/ansible/sandbox-deploy.yaml --extra-vars registryUrl=${registryUrl} --extra-vars git_commit_hash=${git_commit_hash}"
+					}
+				}
+   		}
+				
+    post {
+        always {
+            echo 'I will always say Hello again!'
+            
+            emailext body: "${currentBuild.currentResult}: Job ${env.JOB_NAME} build ${env.BUILD_NUMBER}\n More info at: ${env.BUILD_URL}",
+                recipientProviders: [[$class: 'DevelopersRecipientProvider'], [$class: 'RequesterRecipientProvider']],
+                subject: "Jenkins Build ${currentBuild.currentResult}: Job ${env.JOB_NAME}"
+            
+        }
+    }				
+
+}
+
+======================================================================
+
+- hosts: localhost
+  become_user: jenkins
+
+  vars:
+    ansible_python_interpreter: /usr/bin/python3
+    chartname: kl-uaa-service
+    chartpath: /var/lib/jenkins/workspace/kl-uaaservice/ansible/{{chartname}}
+
+  gather_facts: no
+  connection: local
+
+  tasks:
+ 
+    - name: Upgrade {{chartname}}
+      shell: helm upgrade --install {{chartname}} {{chartpath}} --reuse-values --set image.tag={{git_commit_hash}}
+      delegate_to: localhost
+
+#    - pause: seconds=30
+      
+#    - name: Validating the {{chartname}} deploy status
+#      shell: kubectl get pods | grep okyc | awk -F ' +|/' '$2!=$3' 
+#      register: result 
+    
+#    - name: Rollback {{chartname}} to last version if there is an error in deploy   
+#      shell: helm rollback {{chartname}} 0
+#      when: result.stdout | length > 0
+#      delegate_to: localhost

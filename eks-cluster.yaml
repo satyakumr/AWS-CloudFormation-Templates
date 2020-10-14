@@ -8,7 +8,7 @@ Parameters:
     Description: The Kubernetes version to install
     Type: String
 
-  VpcStack:
+  StackName:
     Description: VPC stack name
     Type: String
 
@@ -115,8 +115,8 @@ Resources:
       RoleArn: !GetAtt ClusterRole.Arn
       ResourcesVpcConfig:
         SecurityGroupIds:
-          - !ImportValue eks-vpc-pub-SecurityGroups
-        SubnetIds: !Split [',', 'Fn::ImportValue': !Sub '${VpcStack}-PrivateSubnets']
+          - !Join ['', ['Fn::ImportValue': !Sub '${StackName}-SecurityGroups']]
+        SubnetIds: !Split [',', 'Fn::ImportValue': !Sub '${StackName}-PrivateSubnets']
         
   NodeInstanceRole:
     Type: AWS::IAM::Role
@@ -141,7 +141,7 @@ Resources:
     Type: AWS::EC2::SecurityGroup
     Properties:
       GroupDescription: Security group for all nodes in the cluster
-      VpcId: !ImportValue eks-vpc-pub-VpcId
+      VpcId: !Join ['', ['Fn::ImportValue': !Sub '${StackName}-VpcId']]
       Tags:
         - Key: !Sub kubernetes.io/cluster/${ClusterName}
           Value: owned
@@ -163,7 +163,7 @@ Resources:
     Properties:
       Description: Allow worker Kubelets and pods to receive communication from the cluster control plane
       GroupId: !Ref NodeSecurityGroup
-      SourceSecurityGroupId: !ImportValue eks-vpc-pub-SecurityGroups
+      SourceSecurityGroupId: !Join ['', ['Fn::ImportValue': !Sub '${StackName}-SecurityGroups']]
       IpProtocol: tcp
       FromPort: 1025
       ToPort: 65535
@@ -173,7 +173,7 @@ Resources:
     DependsOn: NodeSecurityGroup
     Properties:
       Description: Allow the cluster control plane to communicate with worker Kubelet and pods
-      GroupId: !ImportValue eks-vpc-pub-SecurityGroups
+      GroupId: !Join ['', ['Fn::ImportValue': !Sub '${StackName}-SecurityGroups']]
       DestinationSecurityGroupId: !Ref NodeSecurityGroup
       IpProtocol: tcp
       FromPort: 1025
@@ -185,7 +185,7 @@ Resources:
     Properties:
       Description: Allow pods running extension API servers on port 443 to receive communication from cluster control plane
       GroupId: !Ref NodeSecurityGroup
-      SourceSecurityGroupId: !ImportValue eks-vpc-pub-SecurityGroups
+      SourceSecurityGroupId: !Join ['', ['Fn::ImportValue': !Sub '${StackName}-SecurityGroups']]
       IpProtocol: tcp
       FromPort: 443
       ToPort: 443
@@ -195,7 +195,7 @@ Resources:
     DependsOn: NodeSecurityGroup
     Properties:
       Description: Allow the cluster control plane to communicate with pods running extension API servers on port 443
-      GroupId: !ImportValue eks-vpc-pub-SecurityGroups
+      GroupId: !Join ['', ['Fn::ImportValue': !Sub '${StackName}-SecurityGroups']]
       DestinationSecurityGroupId: !Ref NodeSecurityGroup
       IpProtocol: tcp
       FromPort: 443
@@ -206,7 +206,7 @@ Resources:
     DependsOn: NodeSecurityGroup
     Properties:
       Description: Allow pods to communicate with the cluster API Server
-      GroupId: !ImportValue eks-vpc-pub-SecurityGroups
+      GroupId: !Join ['', ['Fn::ImportValue': !Sub '${StackName}-SecurityGroups']]
       SourceSecurityGroupId: !Ref NodeSecurityGroup
       IpProtocol: tcp
       ToPort: 443
@@ -228,7 +228,7 @@ Resources:
          - AssociatePublicIpAddress: "false"
            DeviceIndex: "0"
            #GroupSet:
-           SubnetId: !Select [0, !Split [',', 'Fn::ImportValue': !Sub '${VpcStack}-PrivateSubnets']]
+           SubnetId: !Select [0, !Split [',', 'Fn::ImportValue': !Sub '${StackName}-PrivateSubnets']]
       Tags:
         - Key: Name
           Value: EKSManagementServer
@@ -250,7 +250,7 @@ Resources:
     Properties:
       GroupDescription: Security Group for MongoDB container
       GroupName: EKSManagementSecurityGroup
-      VpcId: !ImportValue eks-vpc-pub-VpcId
+      VpcId: !Join ['', ['Fn::ImportValue': !Sub '${StackName}-VpcId']]
       SecurityGroupIngress:
       - IpProtocol: tcp
         FromPort: 27017
@@ -318,13 +318,13 @@ Resources:
         Fn::Split:
             - ','
             - Fn::ImportValue:
-                Fn::Sub: ${VpcStack}-PrivateSubnets
+                Fn::Sub: ${StackName}-PrivateSubnets
          
   LoadBalancerSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
       GroupDescription: !Join ['', [!Ref ClusterName, LoadBalancerSecurityGroup]]
-      VpcId: !ImportValue DEV-VpcId
+      VpcId: !Join ['', ['Fn::ImportValue': !Sub '${StackName}-VpcId']]
       SecurityGroupIngress:
         - IpProtocol: tcp
           FromPort: !Ref LoadBalancerPort
@@ -342,7 +342,7 @@ Resources:
         - Key: deregistration_delay.timeout_seconds
           Value: 60 # default is 300
       TargetType: instance
-      VpcId: !ImportValue DEV-VpcId
+      VpcId: !Join ['', ['Fn::ImportValue': !Sub '${StackName}-VpcId']]
 
   ListenerTCP:
     Type: AWS::ElasticLoadBalancingV2::Listener
@@ -373,7 +373,7 @@ Resources:
         Fn::Split:
            - ','
            - Fn::ImportValue:
-                Fn::Sub: ${VpcStack}-PrivateSubnetsForMicroservice
+                Fn::Sub: ${StackName}-PrivateSubnetsForMicroservice
                 
 # For Self Managed NodeGroup
 
@@ -391,7 +391,7 @@ Resources:
         Fn::Split:
             - ','
             - Fn::ImportValue:
-                Fn::Sub: ${VpcStack}-PrivateSubnets
+                Fn::Sub: ${StackName}-PrivateSubnets
       Tags:
         - Key: Name
           Value: !Sub ${ClusterName}-WorkerNode01

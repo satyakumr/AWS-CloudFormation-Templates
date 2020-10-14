@@ -264,40 +264,48 @@ Resources:
       - Key: Name
         Value: EKSManagementSecurityGroup
     
-  EKSLaunchTemplate:
-    Type: AWS::EC2::LaunchTemplate
+  NodeLaunchTemplate:
+    Type: "AWS::EC2::LaunchTemplate"
     Properties:
-      LaunchTemplateName: EKSWorkerNodeLaunchTemplate
       LaunchTemplateData:
-        InstanceType: !Ref NodeInstanceType
-        KeyName: !Ref KeyName
-        DisableApiTermination: 'true'
+        BlockDeviceMappings:
+          - DeviceName: /dev/xvda
+            Ebs:
+              DeleteOnTermination: true
+              VolumeSize: !Ref NodeVolumeSize
+              VolumeType: gp2
+        IamInstanceProfile:
+          Arn: !GetAtt NodeInstanceProfile.Arn
         ImageId: !If
           - HasNodeImageId
           - !Ref NodeImageId
           - !Ref NodeImageIdSSMParam
-        BlockDeviceMappings:
-        - DeviceName: /dev/xvda
-          Ebs:
-            VolumeSize: !Ref NodeVolumeSize
-            VolumeType: gp2
-            DeleteOnTermination: true
+        InstanceType: !Ref NodeInstanceType
+        KeyName: !Ref KeyName
         SecurityGroupIds:
-            - !Ref NodeSecurityGroup
-        TagSpecifications:
-        -  ResourceType: instance
-           Tags:
-            - Key: Name
-              Value: EKSWorkerNode02
+        - !Ref NodeSecurityGroup
         UserData: !Base64
           "Fn::Sub": |
             #!/bin/bash
             set -o xtrace
-            /etc/eks/bootstrap.sh ${ClusterName}
+            /etc/eks/bootstrap.sh ${ClusterName} ${BootstrapArguments}
             /opt/aws/bin/cfn-signal --exit-code $? \
                      --stack  ${AWS::StackName} \
                      --resource NodeGroup  \
                      --region ${AWS::Region}
+            #
+            #!/bin/bash
+            cd /tmp
+            sudo yum install -y https://s3.amazonaws.com/ec2-downloads-windows/SSMAgent/latest/linux_amd64/amazon-ssm-agent.rpm
+            sudo systemctl enable amazon-ssm-agent
+            sudo systemctl start amazon-ssm-agent
+        MetadataOptions:
+          HttpPutResponseHopLimit : 2
+          HttpEndpoint: enabled
+          HttpTokens: !If
+            - IMDSv1Disabled
+            - required
+            - optional
 
   EKSNodeGroup:                       # For AWS EKS Managed NodeGroup
     Type: AWS::EKS::Nodegroup
@@ -377,29 +385,33 @@ Resources:
                 
 # For Self Managed NodeGroup
 
-  NodeGroup:                                  
+  NodeGroupASG:
     Type: AWS::AutoScaling::AutoScalingGroup
     Properties:
+      AutoScalingGroupName: Titan-WorkerNode-ASG
       DesiredCapacity: !Ref NodeAutoScalingGroupDesiredCapacity
-      LaunchConfigurationName: !Ref NodeLaunchConfig
-      #LoadBalancerNames: !Ref LoadBalancer 
-      TargetGroupARNs: 
-        - !Ref TargetGroup
-      MinSize: !Ref ClusterMinSize
-      MaxSize: !Ref ClusterMaxSize
-      VPCZoneIdentifier: 
-        Fn::Split:
+      LaunchTemplate:
+        LaunchTemplateId: !Ref NodeLaunchTemplate
+        Version: !GetAtt NodeLaunchTemplate.LatestVersionNumber
+        #LaunchConfigurationName: !Ref NodeLaunchConfig
+      # TargetGroupARNs:
+      #  - !Ref TargetGroup
+      MinSize: !Ref NodeAutoScalingGroupMinCapacity
+      MaxSize: !Ref NodeAutoScalingGroupMaxCapacity
+      DesiredCapacity: !Ref NodeAutoScalingGroupDesiredCapacity
+      VPCZoneIdentifier:
+          Fn::Split:
             - ','
             - Fn::ImportValue:
                 Fn::Sub: ${StackName}-PrivateSubnets
       Tags:
         - Key: Name
-          Value: !Sub ${ClusterName}-WorkerNode01
+          Value: !Sub ${ClusterName}-WorkerNode
           PropagateAtLaunch: true
         - Key: !Sub kubernetes.io/cluster/${ClusterName}
           Value: owned
           PropagateAtLaunch: true
-        - Key: k8s.io/cluster-autoscaler/${ClusterName}
+        - Key: !Sub k8s.io/cluster-autoscaler/${ClusterName}
           Value: owned
           PropagateAtLaunch: true
         - Key: k8s.io/cluster-autoscaler/enabled

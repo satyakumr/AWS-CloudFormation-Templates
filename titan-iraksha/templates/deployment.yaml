@@ -41,6 +41,16 @@ spec:
                    fieldPath: status.hostIP
             - name: AWS_XRAY_DAEMON_ADDRESS
               value: $(HOST_IP):2000
+            - name: MYSQL_HOST
+              value: "{{ .Values.secrets.dbhost }}"
+            - name: MYSQL_PORT
+              value: "{{ .Values.secrets.dbport }}"
+            - name: MYSQL_DB
+              value: "{{ .Values.secrets.dbname }}"
+            - name: DB_USER
+              value: "{{ .Values.secrets.dbuser }}"
+            - name: DB_PASSWORD
+              value: "{{ .Values.secrets.dbpass }}"
           ports:
             - name: http
               containerPort: 8080

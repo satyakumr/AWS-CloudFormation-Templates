@@ -34,20 +34,27 @@ spec:
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           env:
-            - name: AWS_XRAY_DAEMON_ADDRESS 
-              value: 10.101.24.40:2000
+            - name: HOST_IP
+               valueFrom:
+                 fieldRef:
+                   apiVersion: v1
+                   fieldPath: status.hostIP
+            - name: AWS_XRAY_DAEMON_ADDRESS
+              value: $(HOST_IP):2000
           ports:
             - name: http
               containerPort: 8080
               protocol: TCP
-#          livenessProbe:
-#            httpGet:
-#              path: /
-#              port: http
-#          readinessProbe:
-#            httpGet:
-#              path: /
-#              port: http
+          livenessProbe:
+              tcpSocket:
+                 port: 8080
+              initialDelaySeconds: 5
+              periodSeconds: 10
+          readinessProbe:
+              tcpSocket:
+                 port: 8080
+              initialDelaySeconds: 5
+              periodSeconds: 10
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
       {{- with .Values.nodeSelector }}

@@ -53,6 +53,13 @@ ingress:
   #  - secretName: chart-example-tls
   #    hosts:
   #      - chart-example.local
+  
+secrets:
+  dbhost: "{{ssm /db/host ap-south-1}}"
+  dbport: "{{ssm /db/port ap-south-1}}"
+  dbname: "{{ssm /db/name ap-south-1}}"
+  dbuser: "{{ssm /db/user ap-south-1}}"
+  dbpass: "{{ssm /db/password ap-south-1}}"
 
 resources: {}
   # We usually recommend not to specify default resources and to leave this as a conscious

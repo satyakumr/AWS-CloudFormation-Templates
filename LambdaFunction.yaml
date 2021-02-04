@@ -1,0 +1,97 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: VPC function.
+
+Parameters:
+
+  LambdaFunctionName:
+    Description: Lambda Function Name
+    Type: String
+
+  S3Bucket:
+    Description: Bucket to keep lambda function code
+    Type: String
+
+  ZipFile: 
+    Description: Bucket to keep lambda function code
+    Type: String
+
+Resources:
+  LambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - sts:AssumeRole
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+  
+  LambdaRolePolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: LambdaFunctionRole
+      Roles:
+        - !Ref LambdaRole
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - dynamodb:BatchGetItem
+              - dynamodb:TagResource
+              - dynamodb:UntagResource
+              - dynamodb:PutItem
+              - dynamodb:DescribeTable  
+              - dynamodb:DeleteItem
+              - dynamodb:GetItem
+              - dynamodb:Scan
+              - dynamodb:ListTagsOfResource
+              - dynamodb:UpdateItem
+              - dynamodb:GetRecords
+              - logs:CreateLogGroup
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+            Resource: 
+              - arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${lambdaFunctionName}
+              - !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${lambdaFunctionName}:*
+  Function:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Ref LambdaFunctionName
+      Handler: index.handler
+      Role: !Ref LambdaRole
+      Code:
+        S3Bucket: !Ref S3Bucket
+        S3Key: !Ref ZipFile
+      Runtime: Python 3.7
+      Timeout: 5
+      TracingConfig:
+        Mode: Active
+      VpcConfig:
+        SecurityGroupIds:
+          - sg-0a81515ebb662812e
+        SubnetIds:
+          - subnet-04c7a8369f5f28e33
+          - subnet-08dfb50f8622bac04
+  
+  lambdaLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${lambdaFunctionName}
+      RetentionInDays: 90
+      
+Outputs:
+  lambdaArn:
+    Value: !GetAtt lambdaFunction.Arn
+    Description: ARN of the newly created Lambda Function
+    Export:
+      Name: LambdaFunctionArn
+
+  lambdaFunctionName:
+    Value: !Ref LambdaFunctionName
+    Description: ARN of the newly created Lambda Function
+    Export:
+      Name: LambdaFunctionName

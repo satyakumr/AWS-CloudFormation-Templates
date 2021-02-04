@@ -21,7 +21,7 @@ Parameters:
     MaxValue: '10000'
     ConstraintDescription: must be between 5 and 10000
 Resources:
-  TableOfBooks:
+  DynamoDBTable:
     Type: AWS::DynamoDB::Table
     Properties:
       AttributeDefinitions:
@@ -29,8 +29,8 @@ Resources:
         AttributeType: S
       - AttributeName: Category
         AttributeType: S
-      - AttributeName: Language
-        AttributeType: S
+#       - AttributeName: Language
+#         AttributeType: S
       KeySchema:
       - AttributeName: Category
         KeyType: HASH
@@ -60,5 +60,7 @@ Resources:
           WriteCapacityUnits: !Ref 'WriteCapacityUnits'
 Outputs:
   TableName:
-    Value: !Ref 'TableOfBooks'
+    Value: !Ref DynamoDBTable
     Description: Name of the newly created DynamoDB table
+    Export:
+      Name: DynamoDBTableName
